@@ -1,0 +1,5 @@
+{
+  "name": "Smart School",
+  "description": "School management dashboard for tracking students, teachers, classes, and attendance.",
+  "requestFramePermissions": []
+}
