@@ -1,4 +1,5 @@
-import { Users, CheckCircle, XCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Users, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import {
   LineChart,
   Line,
@@ -8,33 +9,72 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-
-const attendanceData = [
-  { name: 'Mon', present: 450, absent: 50 },
-  { name: 'Tue', present: 460, absent: 40 },
-  { name: 'Wed', present: 455, absent: 45 },
-  { name: 'Thu', present: 470, absent: 30 },
-  { name: 'Fri', present: 465, absent: 35 },
-  { name: 'Sat', present: 480, absent: 20 },
-  { name: 'Sun', present: 490, absent: 10 },
-];
-
-const recentNotifications = [
-  { id: 1, student: 'Alice Johnson', time: '08:15 AM', status: 'Sent' },
-  { id: 2, student: 'Bob Smith', time: '08:30 AM', status: 'Delivered' },
-  { id: 3, student: 'Charlie Brown', time: '09:00 AM', status: 'Failed' },
-  { id: 4, student: 'Diana Prince', time: '09:15 AM', status: 'Delivered' },
-];
-
-const announcements = [
-  { id: 1, title: 'Parent-Teacher Meeting', date: 'Oct 15, 2023', content: 'The annual parent-teacher meeting will be held next Friday.' },
-  { id: 2, title: 'Science Fair Registration', date: 'Oct 12, 2023', content: 'Registration for the upcoming science fair is now open.' },
-  { id: 3, title: 'School Closed', date: 'Oct 10, 2023', content: 'School will be closed on Monday due to a public holiday.' },
-  { id: 4, title: 'New Library Books', date: 'Oct 08, 2023', content: 'A new batch of books has arrived in the library.' },
-  { id: 5, title: 'Sports Day Practice', date: 'Oct 05, 2023', content: 'Sports day practice will begin from next week.' },
-];
+import { 
+  subscribeStudents, 
+  subscribeAttendance, 
+  subscribeNotifications, 
+  subscribeAnnouncements,
+  Student,
+  AttendanceLog,
+  Notification,
+  Announcement
+} from '../lib/db';
 
 export default function Home() {
+  const [students, setStudents] = useState<Student[]>([]);
+  const [attendance, setAttendance] = useState<AttendanceLog[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const unsubStudents = subscribeStudents(setStudents);
+    const unsubAttendance = subscribeAttendance(setAttendance);
+    const unsubNotifications = subscribeNotifications(setNotifications);
+    const unsubAnnouncements = subscribeAnnouncements(setAnnouncements);
+
+    // Initial loading state
+    const timer = setTimeout(() => setLoading(false), 1000);
+
+    return () => {
+      unsubStudents();
+      unsubAttendance();
+      unsubNotifications();
+      unsubAnnouncements();
+      clearTimeout(timer);
+    };
+  }, []);
+
+  // Calculate stats
+  const today = new Date().toISOString().split('T')[0];
+  const todayAttendance = attendance.filter(log => log.date === today);
+  const presentCount = todayAttendance.filter(log => log.status === 'Present' || log.status === 'Late').length;
+  const absentCount = todayAttendance.filter(log => log.status === 'Absent').length;
+  const totalStudents = students.length || 500; // Fallback to 500 if no students yet
+
+  // Prepare chart data (last 7 days)
+  const last7Days = [...Array(7)].map((_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+    const dateStr = d.toISOString().split('T')[0];
+    const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+    
+    const dayLogs = attendance.filter(log => log.date === dateStr);
+    return {
+      name: dayName,
+      present: dayLogs.filter(l => l.status === 'Present' || l.status === 'Late').length,
+      absent: dayLogs.filter(l => l.status === 'Absent').length
+    };
+  });
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-[calc(100vh-200px)]">
+        <Loader2 className="h-12 w-12 text-primary animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
@@ -43,8 +83,8 @@ export default function Home() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-gray-500">Total Students Today</p>
-            <p className="text-3xl font-bold text-gray-900 mt-1">500</p>
+            <p className="text-sm font-medium text-gray-500">Total Students</p>
+            <p className="text-3xl font-bold text-gray-900 mt-1">{totalStudents}</p>
           </div>
           <div className="bg-primary/10 p-3 rounded-full">
             <Users className="h-8 w-8 text-primary" />
@@ -53,8 +93,8 @@ export default function Home() {
         
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-gray-500">Present Students</p>
-            <p className="text-3xl font-bold text-secondary mt-1">450</p>
+            <p className="text-sm font-medium text-gray-500">Present Today</p>
+            <p className="text-3xl font-bold text-secondary mt-1">{presentCount}</p>
           </div>
           <div className="bg-secondary/10 p-3 rounded-full">
             <CheckCircle className="h-8 w-8 text-secondary" />
@@ -63,8 +103,8 @@ export default function Home() {
         
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-gray-500">Absent Students</p>
-            <p className="text-3xl font-bold text-red-500 mt-1">50</p>
+            <p className="text-sm font-medium text-gray-500">Absent Today</p>
+            <p className="text-3xl font-bold text-red-500 mt-1">{absentCount}</p>
           </div>
           <div className="bg-red-50 p-3 rounded-full">
             <XCircle className="h-8 w-8 text-red-500" />
@@ -77,7 +117,7 @@ export default function Home() {
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Attendance Trend (Last 7 Days)</h2>
         <div className="h-80 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={attendanceData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+            <LineChart data={last7Days} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
               <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#6B7280' }} dy={10} />
               <YAxis axisLine={false} tickLine={false} tick={{ fill: '#6B7280' }} dx={-10} />
@@ -108,7 +148,7 @@ export default function Home() {
                 </tr>
               </thead>
               <tbody>
-                {recentNotifications.map((notif, index) => (
+                {notifications.slice(0, 5).map((notif, index) => (
                   <tr key={notif.id} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                     <td className="px-6 py-4 font-medium text-gray-900">{notif.student}</td>
                     <td className="px-6 py-4">{notif.time}</td>
@@ -149,3 +189,4 @@ export default function Home() {
     </div>
   );
 }
+

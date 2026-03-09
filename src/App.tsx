@@ -1,5 +1,10 @@
+import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Users, GraduationCap, BookOpen, CalendarCheck, Bell, Settings } from 'lucide-react';
+import { LayoutDashboard, Users, GraduationCap, BookOpen, CalendarCheck, Bell, Settings, LogOut } from 'lucide-react';
+import { onAuthStateChanged, signOut, User } from 'firebase/auth';
+import { auth } from './lib/firebase';
+import { seedInitialData, setGlobalFirestoreErrorHandler } from './lib/db';
+import PermissionErrorBanner from './components/PermissionErrorBanner';
 import Home from './pages/Home';
 import Students from './pages/Students';
 import Teachers from './pages/Teachers';
@@ -7,8 +12,9 @@ import Classes from './pages/Classes';
 import Attendance from './pages/Attendance';
 import Notifications from './pages/Notifications';
 import SettingsPage from './pages/Settings';
+import Landing from './pages/Landing';
 
-function Navigation() {
+function Navigation({ onLogout }: { onLogout: () => void }) {
   const location = useLocation();
   
   const navItems = [
@@ -50,6 +56,13 @@ function Navigation() {
                 </Link>
               );
             })}
+            <button
+              onClick={onLogout}
+              className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+            >
+              <LogOut className="h-4 w-4" />
+              Logout
+            </button>
           </div>
         </div>
       </div>
@@ -58,10 +71,54 @@ function Navigation() {
 }
 
 export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [showPermissionError, setShowPermissionError] = useState(false);
+
+  useEffect(() => {
+    setGlobalFirestoreErrorHandler((error) => {
+      if (error?.code === 'permission-denied' || error?.message?.includes('permission-denied')) {
+        setShowPermissionError(true);
+      }
+    });
+
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setLoading(false);
+      if (currentUser) {
+        seedInitialData().catch(console.error);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error("Error signing out:", error);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="flex flex-col items-center gap-4">
+          <GraduationCap className="h-12 w-12 text-primary animate-bounce" />
+          <p className="text-gray-500 font-medium">Loading Smart School...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Landing />;
+  }
+
   return (
     <BrowserRouter>
       <div className="min-h-screen bg-gray-50 text-text font-sans">
-        <Navigation />
+        <Navigation onLogout={handleLogout} />
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <Routes>
             <Route path="/" element={<Home />} />
@@ -73,7 +130,12 @@ export default function App() {
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </main>
+        {showPermissionError && (
+          <PermissionErrorBanner onClose={() => setShowPermissionError(false)} />
+        )}
       </div>
     </BrowserRouter>
   );
 }
+
+
