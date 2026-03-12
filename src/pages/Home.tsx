@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Users, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { Users, CheckCircle, XCircle, Loader2, Zap, Clock } from 'lucide-react';
 import {
   LineChart,
   Line,
@@ -10,28 +10,28 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { 
-  subscribeStudents, 
-  subscribeAttendance, 
-  subscribeNotifications, 
-  subscribeAnnouncements,
-  Student,
-  AttendanceLog,
-  Notification,
-  Announcement
+  subscribeRTDBStudents, 
+  subscribeRTDBAttendance, 
+  subscribeRTDBLogs,
+  handleRFIDScan,
+  RTDBStudent,
+  RTDBAttendance,
+  RTDBLog
 } from '../lib/db';
 
 export default function Home() {
-  const [students, setStudents] = useState<Student[]>([]);
-  const [attendance, setAttendance] = useState<AttendanceLog[]>([]);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [students, setStudents] = useState<RTDBStudent[]>([]);
+  const [attendance, setAttendance] = useState<RTDBAttendance[]>([]);
+  const [logs, setLogs] = useState<(RTDBLog & { id: string })[]>([]);
   const [loading, setLoading] = useState(true);
+  const [simulating, setSimulating] = useState(false);
+
+  const today = new Date().toISOString().split('T')[0];
 
   useEffect(() => {
-    const unsubStudents = subscribeStudents(setStudents);
-    const unsubAttendance = subscribeAttendance(setAttendance);
-    const unsubNotifications = subscribeNotifications(setNotifications);
-    const unsubAnnouncements = subscribeAnnouncements(setAnnouncements);
+    const unsubStudents = subscribeRTDBStudents(setStudents);
+    const unsubAttendance = subscribeRTDBAttendance(today, setAttendance);
+    const unsubLogs = subscribeRTDBLogs(setLogs);
 
     // Initial loading state
     const timer = setTimeout(() => setLoading(false), 1000);
@@ -39,33 +39,29 @@ export default function Home() {
     return () => {
       unsubStudents();
       unsubAttendance();
-      unsubNotifications();
-      unsubAnnouncements();
+      unsubLogs();
       clearTimeout(timer);
     };
-  }, []);
+  }, [today]);
 
   // Calculate stats
-  const today = new Date().toISOString().split('T')[0];
-  const todayAttendance = attendance.filter(log => log.date === today);
-  const presentCount = todayAttendance.filter(log => log.status === 'Present' || log.status === 'Late').length;
-  const absentCount = todayAttendance.filter(log => log.status === 'Absent').length;
-  const totalStudents = students.length || 500; // Fallback to 500 if no students yet
+  const presentCount = attendance.length;
+  const totalStudents = students.length;
+  const absentCount = Math.max(0, totalStudents - presentCount);
 
-  // Prepare chart data (last 7 days)
-  const last7Days = [...Array(7)].map((_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (6 - i));
-    const dateStr = d.toISOString().split('T')[0];
-    const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
-    
-    const dayLogs = attendance.filter(log => log.date === dateStr);
-    return {
-      name: dayName,
-      present: dayLogs.filter(l => l.status === 'Present' || l.status === 'Late').length,
-      absent: dayLogs.filter(l => l.status === 'Absent').length
-    };
-  });
+  const simulateScan = async () => {
+    if (students.length === 0) return;
+    setSimulating(true);
+    // Pick a random student
+    const randomStudent = students[Math.floor(Math.random() * students.length)];
+    const result = await handleRFIDScan(randomStudent.rfid_uid, 'WEB_SIMULATOR');
+    if (result.success) {
+      console.log(`Simulated scan for ${result.student}`);
+    } else {
+      console.log(`Simulation failed: ${result.message}`);
+    }
+    setSimulating(false);
+  };
 
   if (loading) {
     return (
@@ -77,13 +73,23 @@ export default function Home() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+      <div className="flex justify-between items-center">
+        <h1 className="text-2xl font-bold text-gray-900">School Dashboard</h1>
+        <button 
+          onClick={simulateScan}
+          disabled={simulating}
+          className="flex items-center gap-2 px-4 py-2 bg-accent text-white rounded-lg hover:bg-orange-500 transition-colors shadow-sm disabled:opacity-50"
+        >
+          {simulating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+          Simulate RFID Scan
+        </button>
+      </div>
       
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-gray-500">Total Students</p>
+            <p className="text-sm font-medium text-gray-500">Total Registered</p>
             <p className="text-3xl font-bold text-gray-900 mt-1">{totalStudents}</p>
           </div>
           <div className="bg-primary/10 p-3 rounded-full">
@@ -112,31 +118,12 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Chart */}
-      <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Attendance Trend (Last 7 Days)</h2>
-        <div className="h-80 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={last7Days} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#6B7280' }} dy={10} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fill: '#6B7280' }} dx={-10} />
-              <Tooltip 
-                contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-              />
-              <Line type="monotone" dataKey="present" name="Present" stroke="#32CD32" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} />
-              <Line type="monotone" dataKey="absent" name="Absent" stroke="#EF4444" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Bottom Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Notifications Table */}
+        {/* Latest Attendance */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
-          <div className="p-6 border-b border-gray-100">
-            <h2 className="text-lg font-semibold text-gray-900">Recent Parent Notifications</h2>
+          <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-gray-900">Today's Attendance</h2>
+            <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{today}</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm text-gray-500">
@@ -147,42 +134,53 @@ export default function Home() {
                   <th scope="col" className="px-6 py-3">Status</th>
                 </tr>
               </thead>
-              <tbody>
-                {notifications.slice(0, 5).map((notif, index) => (
-                  <tr key={notif.id} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                    <td className="px-6 py-4 font-medium text-gray-900">{notif.student}</td>
-                    <td className="px-6 py-4">{notif.time}</td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        notif.status === 'Delivered' ? 'bg-green-100 text-green-800' :
-                        notif.status === 'Failed' ? 'bg-red-100 text-red-800' :
-                        'bg-blue-100 text-blue-800'
-                      }`}>
-                        {notif.status}
-                      </span>
-                    </td>
+              <tbody className="divide-y divide-gray-100">
+                {attendance.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="px-6 py-10 text-center text-gray-400">No attendance records for today yet.</td>
                   </tr>
-                ))}
+                ) : (
+                  attendance.map((record) => (
+                    <tr key={record.rfid_uid} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4 font-medium text-gray-900">{record.name}</td>
+                      <td className="px-6 py-4">{record.time}</td>
+                      <td className="px-6 py-4">
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                          {record.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
         </div>
 
-        {/* Announcements */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col h-96">
-          <div className="p-6 border-b border-gray-100">
-            <h2 className="text-lg font-semibold text-gray-900">Announcements</h2>
+        {/* Device Logs */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col">
+          <div className="p-6 border-b border-gray-100 flex items-center gap-2">
+            <Clock className="h-5 w-5 text-gray-400" />
+            <h2 className="text-lg font-semibold text-gray-900">Recent Device Logs</h2>
           </div>
-          <div className="p-6 overflow-y-auto flex-1 space-y-4">
-            {announcements.map((announcement) => (
-              <div key={announcement.id} className="border-l-4 border-accent pl-4 py-1">
-                <div className="flex justify-between items-start">
-                  <h3 className="text-sm font-semibold text-gray-900">{announcement.title}</h3>
-                  <span className="text-xs text-gray-500">{announcement.date}</span>
+          <div className="p-6 overflow-y-auto flex-1 space-y-4 max-h-[400px]">
+            {logs.length === 0 ? (
+              <p className="text-center text-gray-400 py-10">No device logs found.</p>
+            ) : (
+              logs.map((log) => (
+                <div key={log.id} className="flex items-start gap-3 border-l-2 border-primary/30 pl-4 py-1">
+                  <div className="flex-1">
+                    <div className="flex justify-between items-start">
+                      <p className="text-sm font-semibold text-gray-900">RFID: {log.rfid_uid}</p>
+                      <span className="text-xs text-gray-500">
+                        {log.time ? new Date(log.time).toLocaleTimeString() : 'Just now'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-0.5">Device: {log.deviceID}</p>
+                  </div>
                 </div>
-                <p className="text-sm text-gray-600 mt-1">{announcement.content}</p>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       </div>

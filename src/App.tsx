@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-do
 import { LayoutDashboard, Users, GraduationCap, BookOpen, CalendarCheck, Bell, Settings, LogOut } from 'lucide-react';
 import { onAuthStateChanged, signOut, User } from 'firebase/auth';
 import { auth } from './lib/firebase';
-import { seedInitialData, setGlobalFirestoreErrorHandler } from './lib/db';
+import { seedRTDBData, setGlobalFirestoreErrorHandler } from './lib/db';
 import PermissionErrorBanner from './components/PermissionErrorBanner';
 import Home from './pages/Home';
 import Students from './pages/Students';
@@ -86,7 +86,7 @@ export default function App() {
       setUser(currentUser);
       setLoading(false);
       if (currentUser) {
-        seedInitialData().catch(console.error);
+        seedRTDBData().catch(console.error);
       }
     });
     return () => unsubscribe();

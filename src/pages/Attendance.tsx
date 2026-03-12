@@ -1,64 +1,64 @@
 import { useState, useEffect } from 'react';
-import { Search, Download, Loader2 } from 'lucide-react';
+import { Search, Download, Loader2, Calendar } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
-import { subscribeAttendance, AttendanceLog } from '../lib/db';
+import { subscribeRTDBAttendance, subscribeRTDBStudents, RTDBAttendance, RTDBStudent } from '../lib/db';
 
 const COLORS = ['#32CD32', '#EF4444', '#FFA500'];
 
 export default function Attendance() {
-  const [logs, setLogs] = useState<AttendanceLog[]>([]);
+  const [logs, setLogs] = useState<RTDBAttendance[]>([]);
+  const [students, setStudents] = useState<RTDBStudent[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [classFilter, setClassFilter] = useState('');
-  const [dateFilter, setDateFilter] = useState('');
+  const [gradeFilter, setGradeFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState(new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
-    const unsubscribe = subscribeAttendance((data) => {
+    const unsubStudents = subscribeRTDBStudents(setStudents);
+    const unsubAttendance = subscribeRTDBAttendance(dateFilter, (data) => {
       setLogs(data);
       setLoading(false);
     });
-    return () => unsubscribe();
-  }, []);
+    return () => {
+      unsubStudents();
+      unsubAttendance();
+    };
+  }, [dateFilter]);
 
   const filteredLogs = logs.filter(log => {
-    const matchesSearch = log.student.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesClass = classFilter ? log.class === classFilter : true;
-    const matchesDate = dateFilter ? log.date === dateFilter : true;
-    return matchesSearch && matchesClass && matchesDate;
+    const matchesSearch = log.name.toLowerCase().includes(searchTerm.toLowerCase());
+    // Find student to check grade
+    const student = students.find(s => s.studentID === log.studentID);
+    const matchesGrade = gradeFilter ? student?.grade === gradeFilter : true;
+    return matchesSearch && matchesGrade;
   });
 
-  // Calculate pie chart data based on filtered logs or all logs for today
-  const today = new Date().toISOString().split('T')[0];
-  const todayLogs = logs.filter(log => log.date === today);
+  // Calculate pie chart data
+  const presentCount = logs.length;
+  const totalStudents = students.length;
+  const absentCount = Math.max(0, totalStudents - presentCount);
   
-  const stats = todayLogs.reduce((acc, log) => {
-    acc[log.status] = (acc[log.status] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
-
   const pieData = [
-    { name: 'Present', value: stats['Present'] || 0 },
-    { name: 'Absent', value: stats['Absent'] || 0 },
-    { name: 'Late', value: stats['Late'] || 0 },
+    { name: 'Present', value: presentCount },
+    { name: 'Absent', value: absentCount },
   ].filter(d => d.value > 0);
 
-  // Fallback if no data for today
+  // Fallback if no data
   const displayPieData = pieData.length > 0 ? pieData : [
-    { name: 'Present', value: 1 },
-    { name: 'Absent', value: 0 },
-    { name: 'Late', value: 0 },
+    { name: 'Present', value: 0 },
+    { name: 'Absent', value: totalStudents || 1 },
   ];
 
   const handleExportCSV = () => {
     if (filteredLogs.length === 0) return;
     
-    const headers = ['Date', 'Student', 'Class', 'Status', 'Time'];
+    const headers = ['Date', 'Student ID', 'Name', 'Status', 'Time'];
     const csvContent = [
       headers.join(','),
       ...filteredLogs.map(log => [
-        log.date,
-        `"${log.student}"`,
-        log.class,
+        dateFilter,
+        log.studentID,
+        `"${log.name}"`,
         log.status,
         log.time
       ].join(','))
@@ -68,7 +68,7 @@ export default function Attendance() {
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     link.setAttribute('href', url);
-    link.setAttribute('download', `attendance_export_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `attendance_export_${dateFilter}.csv`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
@@ -92,7 +92,10 @@ export default function Attendance() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Pie Chart */}
         <div className="lg:col-span-1 bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Today's Overview</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-900">Daily Overview</h2>
+            <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{dateFilter}</span>
+          </div>
           <div className="h-64">
             {loading ? (
               <div className="flex justify-center items-center h-full">
@@ -122,6 +125,16 @@ export default function Attendance() {
               </ResponsiveContainer>
             )}
           </div>
+          <div className="mt-4 grid grid-cols-2 gap-4 text-center">
+            <div className="bg-green-50 p-3 rounded-lg">
+              <p className="text-xs text-green-600 font-medium uppercase">Present</p>
+              <p className="text-xl font-bold text-green-700">{presentCount}</p>
+            </div>
+            <div className="bg-red-50 p-3 rounded-lg">
+              <p className="text-xs text-red-600 font-medium uppercase">Absent</p>
+              <p className="text-xl font-bold text-red-700">{absentCount}</p>
+            </div>
+          </div>
         </div>
 
         {/* Logs Table */}
@@ -141,21 +154,26 @@ export default function Attendance() {
             </div>
             
             <div className="flex items-center gap-2 w-full sm:w-auto">
-              <input 
-                type="date"
-                className="block w-full sm:w-auto px-3 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-md border bg-white text-gray-700"
-                value={dateFilter}
-                onChange={(e) => setDateFilter(e.target.value)}
-              />
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Calendar className="h-4 w-4 text-gray-400" />
+                </div>
+                <input 
+                  type="date"
+                  className="block w-full sm:w-auto pl-10 pr-3 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-md border bg-white text-gray-700"
+                  value={dateFilter}
+                  onChange={(e) => setDateFilter(e.target.value)}
+                />
+              </div>
               <select 
                 className="block w-full sm:w-auto pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-md border bg-white"
-                value={classFilter}
-                onChange={(e) => setClassFilter(e.target.value)}
+                value={gradeFilter}
+                onChange={(e) => setGradeFilter(e.target.value)}
               >
-                <option value="">All Classes</option>
-                <option value="9th">9th</option>
-                <option value="10th">10th</option>
-                <option value="11th">11th</option>
+                <option value="">All Grades</option>
+                {[...Array(12)].map((_, i) => (
+                  <option key={i+1} value={String(i+1)}>{i+1}th</option>
+                ))}
               </select>
             </div>
           </div>
@@ -169,38 +187,33 @@ export default function Attendance() {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student Name</th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Class</th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student ID</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredLogs.map((log, index) => (
-                    <tr key={log.id} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{log.date}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{log.student}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{log.class}</td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          log.status === 'Present' ? 'bg-green-100 text-green-800' :
-                          log.status === 'Absent' ? 'bg-red-100 text-red-800' :
-                          'bg-orange-100 text-orange-800'
-                        }`}>
-                          {log.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{log.time}</td>
+                  {filteredLogs.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-6 py-10 text-center text-gray-400">No records found for this date.</td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredLogs.map((log, index) => (
+                      <tr key={log.rfid_uid} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{log.studentID}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{log.name}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{log.time}</td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            {log.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
-            )}
-            {!loading && filteredLogs.length === 0 && (
-              <div className="text-center py-8 text-gray-500">
-                No attendance logs found matching your criteria.
-              </div>
             )}
           </div>
         </div>

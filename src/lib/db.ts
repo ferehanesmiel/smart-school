@@ -12,7 +12,22 @@ import {
   where,
   limit
 } from "firebase/firestore";
-import { db } from "./firebase";
+import { 
+  ref, 
+  onValue, 
+  set, 
+  push, 
+  get, 
+  child, 
+  update, 
+  remove,
+  query as rtdbQuery,
+  orderByChild,
+  equalTo,
+  limitToLast,
+  serverTimestamp
+} from "firebase/database";
+import { db, rtdb } from "./firebase";
 
 // Types
 export interface Student {
@@ -26,7 +41,44 @@ export interface Student {
   phone: string;
   photoUrl?: string;
   createdAt?: any;
+  // New fields for RTDB structure
+  grade?: string;
+  rfid_uid?: string;
+  parent_phone?: string;
+  parent_name?: string;
 }
+
+export interface RTDBStudent {
+  studentID: string;
+  name: string;
+  grade: string;
+  section: string;
+  rfid_uid: string;
+  parent_phone: string;
+  parent_name: string;
+}
+
+export interface RTDBAttendance {
+  studentID: string;
+  name: string;
+  time: string;
+  status: string;
+  rfid_uid: string;
+}
+
+export interface RTDBDevice {
+  deviceID: string;
+  location: string;
+  last_seen: any;
+}
+
+export interface RTDBLog {
+  rfid_uid: string;
+  time: any;
+  deviceID: string;
+}
+
+// ... existing interfaces ...
 
 export interface Teacher {
   id?: string;
@@ -287,74 +339,145 @@ export const addAnnouncement = async (announcement: Omit<Announcement, "id" | "t
   }
 };
 
-// Seed Data Function (to be called once if needed)
-export const seedInitialData = async () => {
-  const studentsSnap = await getDocs(studentsCol);
-  if (studentsSnap.empty) {
-    const initialStudents = [
-      { studentId: 'S1001', name: 'Alice Johnson', class: '10th', section: 'A', cardId: 'C001', email: 'alice@example.com', phone: '123-456-7890' },
-      { studentId: 'S1002', name: 'Bob Smith', class: '9th', section: 'B', cardId: 'C002', email: 'bob@example.com', phone: '234-567-8901' },
-      { studentId: 'S1003', name: 'Charlie Brown', class: '10th', section: 'A', cardId: 'C003', email: 'charlie@example.com', phone: '345-678-9012' },
-      { studentId: 'S1004', name: 'Diana Prince', class: '11th', section: 'C', cardId: 'C004', email: 'diana@example.com', phone: '456-789-0123' },
-    ];
-    for (const s of initialStudents) await addStudent(s);
-  }
+// Realtime Database Functions for Smart School Attendance System
 
-  const teachersSnap = await getDocs(teachersCol);
-  if (teachersSnap.empty) {
-    const initialTeachers = [
-      { teacherId: 'T001', name: 'Mr. Anderson', subject: 'Mathematics', email: 'anderson@example.com', phone: '111-222-3333' },
-      { teacherId: 'T002', name: 'Ms. Davis', subject: 'Science', email: 'davis@example.com', phone: '222-333-4444' },
-      { teacherId: 'T003', name: 'Mrs. Smith', subject: 'English', email: 'smith@example.com', phone: '333-444-5555' },
-      { teacherId: 'T004', name: 'Mr. Johnson', subject: 'History', email: 'johnson@example.com', phone: '444-555-6666' },
-    ];
-    for (const t of initialTeachers) await addTeacher(t);
-  }
+export const subscribeRTDBStudents = (callback: (students: RTDBStudent[]) => void) => {
+  const studentsRef = ref(rtdb, 'students');
+  return onValue(studentsRef, (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      const studentsList = Object.keys(data).map(key => ({
+        ...data[key],
+        studentID: key
+      }));
+      callback(studentsList);
+    } else {
+      callback([]);
+    }
+  });
+};
 
-  const classesSnap = await getDocs(classesCol);
-  if (classesSnap.empty) {
-    const initialClasses = [
-      { name: '9th Grade Math', teacher: 'Mr. Anderson', day: 'Monday', startTime: '08:00 AM', endTime: '09:00 AM' },
-      { name: '10th Grade Science', teacher: 'Ms. Davis', day: 'Tuesday', startTime: '09:15 AM', endTime: '10:15 AM' },
-      { name: '11th Grade English', teacher: 'Mrs. Smith', day: 'Wednesday', startTime: '10:30 AM', endTime: '11:30 AM' },
-      { name: '12th Grade History', teacher: 'Mr. Johnson', day: 'Thursday', startTime: '11:45 AM', endTime: '12:45 PM' },
-    ];
-    for (const c of initialClasses) await addClass(c);
-  }
+export const addRTDBStudent = async (student: RTDBStudent) => {
+  const studentRef = ref(rtdb, `students/${student.studentID}`);
+  await set(studentRef, student);
+};
 
-  const attendanceSnap = await getDocs(attendanceCol);
-  if (attendanceSnap.empty) {
-    const initialLogs = [
-      { date: '2023-10-25', student: 'Alice Johnson', class: '10th', status: 'Present', time: '08:05 AM' },
-      { date: '2023-10-25', student: 'Bob Smith', class: '9th', status: 'Absent', time: '-' },
-      { date: '2023-10-25', student: 'Charlie Brown', class: '10th', status: 'Present', time: '08:10 AM' },
-      { date: '2023-10-25', student: 'Diana Prince', class: '11th', status: 'Late', time: '08:35 AM' },
-      { date: '2023-10-24', student: 'Alice Johnson', class: '10th', status: 'Present', time: '08:02 AM' },
-    ];
-    for (const l of initialLogs) await addAttendance(l as any);
-  }
+export const subscribeRTDBAttendance = (date: string, callback: (attendance: RTDBAttendance[]) => void) => {
+  const attendanceRef = ref(rtdb, `attendance/${date}`);
+  return onValue(attendanceRef, (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      const attendanceList = Object.keys(data).map(key => ({
+        ...data[key],
+        rfid_uid: key
+      }));
+      callback(attendanceList);
+    } else {
+      callback([]);
+    }
+  });
+};
 
-  const notificationsSnap = await getDocs(notificationsCol);
-  if (notificationsSnap.empty) {
-    const initialNotifications = [
-      { date: '2023-10-25', student: 'Alice Johnson', status: 'Delivered', type: 'Email', time: '08:15 AM' },
-      { date: '2023-10-25', student: 'Bob Smith', status: 'Failed', type: 'SMS', time: '08:30 AM' },
-      { date: '2023-10-25', student: 'Charlie Brown', status: 'Delivered', type: 'Email', time: '09:00 AM' },
-      { date: '2023-10-24', student: 'Diana Prince', status: 'Delivered', type: 'SMS', time: '09:15 AM' },
-      { date: '2023-10-24', student: 'Eve Davis', status: 'Pending', type: 'Email', time: '10:00 AM' },
-    ];
-    for (const n of initialNotifications) await addNotification(n as any);
-  }
+export const subscribeRTDBDevices = (callback: (devices: RTDBDevice[]) => void) => {
+  const devicesRef = ref(rtdb, 'devices');
+  return onValue(devicesRef, (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      const devicesList = Object.keys(data).map(key => ({
+        ...data[key],
+        deviceID: key
+      }));
+      callback(devicesList);
+    } else {
+      callback([]);
+    }
+  });
+};
 
-  const announcementsSnap = await getDocs(announcementsCol);
-  if (announcementsSnap.empty) {
-    const initialAnnouncements = [
-      { title: 'Parent-Teacher Meeting', date: 'Oct 15, 2023', content: 'The annual parent-teacher meeting will be held next Friday.' },
-      { title: 'Science Fair Registration', date: 'Oct 12, 2023', content: 'Registration for the upcoming science fair is now open.' },
-      { title: 'School Closed', date: 'Oct 10, 2023', content: 'School will be closed on Monday due to a public holiday.' },
-      { title: 'New Library Books', date: 'Oct 08, 2023', content: 'A new batch of books has arrived in the library.' },
-      { title: 'Sports Day Practice', date: 'Oct 05, 2023', content: 'Sports day practice will begin from next week.' },
-    ];
-    for (const a of initialAnnouncements) await addAnnouncement(a as any);
+export const subscribeRTDBLogs = (callback: (logs: (RTDBLog & { id: string })[]) => void) => {
+  const logsRef = rtdbQuery(ref(rtdb, 'logs'), limitToLast(20));
+  return onValue(logsRef, (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      const logsList = Object.keys(data).map(key => ({
+        ...data[key],
+        id: key
+      })).reverse();
+      callback(logsList);
+    } else {
+      callback([]);
+    }
+  });
+};
+
+// Function to handle RFID scan (simulating what ESP32 would do or processing it)
+export const handleRFIDScan = async (rfid_uid: string, deviceID: string) => {
+  const now = new Date();
+  const dateStr = now.toISOString().split('T')[0];
+  const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  
+  // 1. Log the scan
+  const logsRef = ref(rtdb, 'logs');
+  const newLogRef = push(logsRef);
+  await set(newLogRef, {
+    rfid_uid,
+    time: serverTimestamp(),
+    deviceID
+  });
+
+  // 2. Find student by rfid_uid
+  const studentsRef = ref(rtdb, 'students');
+  const studentQuery = rtdbQuery(studentsRef, orderByChild('rfid_uid'), equalTo(rfid_uid));
+  const studentSnapshot = await get(studentQuery);
+  
+  if (studentSnapshot.exists()) {
+    const studentData = Object.values(studentSnapshot.val())[0] as RTDBStudent;
+    const studentID = Object.keys(studentSnapshot.val())[0];
+
+    // 3. Check for duplicate scan within 5 minutes
+    const attendanceRef = ref(rtdb, `attendance/${dateStr}/${rfid_uid}`);
+    const lastAttendanceSnap = await get(attendanceRef);
+    
+    if (lastAttendanceSnap.exists()) {
+      const lastTime = new Date(`${dateStr} ${lastAttendanceSnap.val().time}`);
+      const diffMinutes = (now.getTime() - lastTime.getTime()) / (1000 * 60);
+      
+      if (diffMinutes < 5) {
+        console.log("Duplicate scan within 5 minutes. Skipping.");
+        return { success: false, message: "Duplicate scan" };
+      }
+    }
+
+    // 4. Create attendance record
+    await set(attendanceRef, {
+      studentID,
+      name: studentData.name,
+      time: timeStr,
+      status: 'Present'
+    });
+
+    return { success: true, student: studentData.name };
+  } else {
+    console.log("Student not found for RFID:", rfid_uid);
+    return { success: false, message: "Student not found" };
+  }
+};
+
+// Seed RTDB Data
+export const seedRTDBData = async () => {
+  const studentsRef = ref(rtdb, 'students');
+  const snap = await get(studentsRef);
+  if (!snap.exists()) {
+    const initialStudents: Record<string, RTDBStudent> = {
+      'S1001': { studentID: 'S1001', name: 'Alice Johnson', grade: '10', section: 'A', rfid_uid: 'UID_12345', parent_phone: '123-456-7890', parent_name: 'Bob Johnson' },
+      'S1002': { studentID: 'S1002', name: 'Charlie Brown', grade: '9', section: 'B', rfid_uid: 'UID_67890', parent_phone: '234-567-8901', parent_name: 'Lucy Brown' },
+      'S1003': { studentID: 'S1003', name: 'Diana Prince', grade: '11', section: 'C', rfid_uid: 'UID_ABCDE', parent_phone: '345-678-9012', parent_name: 'Hippolyta' },
+    };
+    await set(studentsRef, initialStudents);
+
+    const devicesRef = ref(rtdb, 'devices');
+    await set(devicesRef, {
+      'ESP32_MAIN_GATE': { deviceID: 'ESP32_MAIN_GATE', location: 'Main Entrance', last_seen: serverTimestamp() }
+    });
   }
 };

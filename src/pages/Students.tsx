@@ -1,28 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Filter, Edit2, Trash2, Upload, Loader2, X } from 'lucide-react';
-import { subscribeStudents, addStudent, deleteStudent, updateStudent, Student } from '../lib/db';
+import { subscribeRTDBStudents, addRTDBStudent, RTDBStudent } from '../lib/db';
 
 export default function Students() {
-  const [students, setStudents] = useState<Student[]>([]);
+  const [students, setStudents] = useState<RTDBStudent[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [classFilter, setClassFilter] = useState('');
+  const [gradeFilter, setGradeFilter] = useState('');
   
   // Form state
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<RTDBStudent>({
     name: '',
-    studentId: '',
-    cardId: '',
-    class: '',
+    studentID: '',
+    rfid_uid: '',
+    grade: '',
     section: '',
-    email: '',
-    phone: ''
+    parent_name: '',
+    parent_phone: ''
   });
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsubscribe = subscribeStudents((data) => {
+    const unsubscribe = subscribeRTDBStudents((data) => {
       setStudents(data);
       setLoading(false);
     });
@@ -36,24 +36,20 @@ export default function Students() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.studentId) return;
+    if (!formData.name || !formData.studentID) return;
     
     setSubmitting(true);
     try {
-      if (editingId) {
-        await updateStudent(editingId, formData);
-        setEditingId(null);
-      } else {
-        await addStudent(formData);
-      }
+      await addRTDBStudent(formData);
+      setEditingId(null);
       setFormData({
         name: '',
-        studentId: '',
-        cardId: '',
-        class: '',
+        studentID: '',
+        rfid_uid: '',
+        grade: '',
         section: '',
-        email: '',
-        phone: ''
+        parent_name: '',
+        parent_phone: ''
       });
     } catch (error) {
       console.error("Error saving student:", error);
@@ -62,48 +58,30 @@ export default function Students() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm("Are you sure you want to delete this student?")) {
-      try {
-        await deleteStudent(id);
-      } catch (error) {
-        console.error("Error deleting student:", error);
-      }
-    }
-  };
-
-  const handleEdit = (student: Student) => {
-    if (!student.id) return;
-    setEditingId(student.id);
-    setFormData({
-      name: student.name,
-      studentId: student.studentId,
-      cardId: student.cardId,
-      class: student.class,
-      section: student.section,
-      email: student.email,
-      phone: student.phone
-    });
+  const handleEdit = (student: RTDBStudent) => {
+    setEditingId(student.studentID);
+    setFormData({ ...student });
   };
 
   const cancelEdit = () => {
     setEditingId(null);
     setFormData({
       name: '',
-      studentId: '',
-      cardId: '',
-      class: '',
+      studentID: '',
+      rfid_uid: '',
+      grade: '',
       section: '',
-      email: '',
-      phone: ''
+      parent_name: '',
+      parent_phone: ''
     });
   };
 
   const filteredStudents = students.filter(student => {
     const matchesSearch = student.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          student.studentId.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesClass = classFilter ? student.class === classFilter : true;
-    return matchesSearch && matchesClass;
+                          student.studentID.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          student.rfid_uid.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesGrade = gradeFilter ? student.grade === gradeFilter : true;
+    return matchesSearch && matchesGrade;
   });
 
   return (
@@ -144,41 +122,43 @@ export default function Students() {
                 <label className="block text-sm font-medium text-gray-700">Student ID</label>
                 <input 
                   type="text" 
-                  name="studentId"
-                  value={formData.studentId}
+                  name="studentID"
+                  value={formData.studentID}
                   onChange={handleInputChange}
                   required
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm px-3 py-2 border" 
+                  disabled={!!editingId}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm px-3 py-2 border disabled:bg-gray-50" 
                   placeholder="S1005" 
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Card ID</label>
+                <label className="block text-sm font-medium text-gray-700">RFID UID</label>
                 <input 
                   type="text" 
-                  name="cardId"
-                  value={formData.cardId}
+                  name="rfid_uid"
+                  value={formData.rfid_uid}
                   onChange={handleInputChange}
+                  required
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm px-3 py-2 border" 
-                  placeholder="C005" 
+                  placeholder="UID_XXXXX" 
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Class</label>
+                <label className="block text-sm font-medium text-gray-700">Grade</label>
                 <select 
-                  name="class"
-                  value={formData.class}
+                  name="grade"
+                  value={formData.grade}
                   onChange={handleInputChange}
+                  required
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm px-3 py-2 border bg-white"
                 >
-                  <option value="">Select Class</option>
-                  <option value="9th">9th</option>
-                  <option value="10th">10th</option>
-                  <option value="11th">11th</option>
-                  <option value="12th">12th</option>
+                  <option value="">Select Grade</option>
+                  {[...Array(12)].map((_, i) => (
+                    <option key={i+1} value={String(i+1)}>{i+1}th</option>
+                  ))}
                 </select>
               </div>
               <div>
@@ -187,6 +167,7 @@ export default function Students() {
                   name="section"
                   value={formData.section}
                   onChange={handleInputChange}
+                  required
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm px-3 py-2 border bg-white"
                 >
                   <option value="">Select Section</option>
@@ -198,14 +179,15 @@ export default function Students() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700">Email Address</label>
+              <label className="block text-sm font-medium text-gray-700">Parent Name</label>
               <input 
-                type="email" 
-                name="email"
-                value={formData.email}
+                type="text" 
+                name="parent_name"
+                value={formData.parent_name}
                 onChange={handleInputChange}
+                required
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm px-3 py-2 border" 
-                placeholder="john@example.com" 
+                placeholder="Jane Doe" 
               />
             </div>
 
@@ -213,28 +195,13 @@ export default function Students() {
               <label className="block text-sm font-medium text-gray-700">Parent Phone</label>
               <input 
                 type="tel" 
-                name="phone"
-                value={formData.phone}
+                name="parent_phone"
+                value={formData.parent_phone}
                 onChange={handleInputChange}
+                required
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm px-3 py-2 border" 
                 placeholder="123-456-7890" 
               />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Photo Upload</label>
-              <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md hover:border-primary transition-colors cursor-pointer">
-                <div className="space-y-1 text-center">
-                  <Upload className="mx-auto h-12 w-12 text-gray-400" />
-                  <div className="flex text-sm text-gray-600 justify-center">
-                    <span className="relative cursor-pointer bg-white rounded-md font-medium text-primary hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-primary">
-                      Upload a file
-                    </span>
-                    <p className="pl-1">or drag and drop</p>
-                  </div>
-                  <p className="text-xs text-gray-500">PNG, JPG, GIF up to 10MB</p>
-                </div>
-              </div>
             </div>
 
             <button 
@@ -267,13 +234,13 @@ export default function Students() {
               <Filter className="h-4 w-4 text-gray-400" />
               <select 
                 className="block w-full sm:w-auto pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-md border bg-white"
-                value={classFilter}
-                onChange={(e) => setClassFilter(e.target.value)}
+                value={gradeFilter}
+                onChange={(e) => setGradeFilter(e.target.value)}
               >
-                <option value="">All Classes</option>
-                <option value="9th">9th</option>
-                <option value="10th">10th</option>
-                <option value="11th">11th</option>
+                <option value="">All Grades</option>
+                {[...Array(12)].map((_, i) => (
+                  <option key={i+1} value={String(i+1)}>{i+1}th</option>
+                ))}
               </select>
             </div>
           </div>
@@ -287,19 +254,19 @@ export default function Students() {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID / Card</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID / RFID</th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Class/Sec</th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Grade/Sec</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Parent Info</th>
                     <th scope="col" className="relative px-6 py-3"><span className="sr-only">Actions</span></th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredStudents.map((student, index) => (
-                    <tr key={student.id} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                    <tr key={student.studentID} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">{student.studentId}</div>
-                        <div className="text-sm text-gray-500">{student.cardId}</div>
+                        <div className="text-sm font-medium text-gray-900">{student.studentID}</div>
+                        <div className="text-sm text-gray-500">{student.rfid_uid}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
@@ -312,12 +279,12 @@ export default function Students() {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{student.class}</div>
+                        <div className="text-sm text-gray-900">{student.grade}th</div>
                         <div className="text-sm text-gray-500">Sec {student.section}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{student.phone}</div>
-                        <div className="text-sm text-gray-500">{student.email}</div>
+                        <div className="text-sm text-gray-900">{student.parent_name}</div>
+                        <div className="text-sm text-gray-500">{student.parent_phone}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <div className="flex justify-end gap-2">
@@ -326,12 +293,6 @@ export default function Students() {
                             className="text-indigo-600 hover:text-indigo-900 bg-indigo-50 p-1.5 rounded-md"
                           >
                             <Edit2 className="h-4 w-4" />
-                          </button>
-                          <button 
-                            onClick={() => student.id && handleDelete(student.id)}
-                            className="text-red-600 hover:text-red-900 bg-red-50 p-1.5 rounded-md"
-                          >
-                            <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
                       </td>
